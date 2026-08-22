@@ -32,6 +32,7 @@ const starterData = {
 let state = cloneStarterData();
 let firestoreDb = null;
 let isApplyingRemoteState = false;
+let hasCompletedInitialRemoteSync = false;
 
 const elements = {
   authPanel: document.querySelector("#authPanel"),
@@ -216,9 +217,15 @@ function subscribeToRemoteState() {
 
         const currentUserId = state.currentUserId;
         isApplyingRemoteState = true;
-        state = { ...cloneStarterData(), ...snapshot.data(), currentUserId };
+        state = hasCompletedInitialRemoteSync
+          ? { ...cloneStarterData(), ...snapshot.data(), currentUserId }
+          : mergeSharedState(snapshot.data(), loadLocalState(), currentUserId);
         migrateState();
         isApplyingRemoteState = false;
+        if (!hasCompletedInitialRemoteSync) {
+          hasCompletedInitialRemoteSync = true;
+          saveState();
+        }
         renderApp();
       },
       (error) => {
@@ -231,6 +238,9 @@ async function startApp() {
   initFirebase();
   state = await loadState();
   migrateState();
+  if (firestoreDb) {
+    saveState();
+  }
   subscribeToRemoteState();
   renderApp();
   syncTraineeSinceInput();
