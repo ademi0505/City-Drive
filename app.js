@@ -2,6 +2,17 @@ const COORDINATOR_RATE = 4500;
 const DRIVER_RATE = 3000;
 const TRAINEE_DAYS = 60;
 const STORAGE_KEY = "driver-routing-app";
+const FIREBASE_COLLECTION = "appState";
+const FIREBASE_DOCUMENT = "main";
+const firebaseConfig = {
+  apiKey: "AIzaSyD_CbV5Tyvp-9Im196VBkDlk3PaI-X7-LY",
+  authDomain: "sity-drive.firebaseapp.com",
+  projectId: "sity-drive",
+  storageBucket: "sity-drive.firebasestorage.app",
+  messagingSenderId: "258068770685",
+  appId: "1:258068770685:web:0ed4cbee3fcd07ab6b2614",
+  measurementId: "G-58EWMRFRCK",
+};
 
 const starterData = {
   users: [
@@ -18,8 +29,9 @@ const starterData = {
   currentUserId: null,
 };
 
-const state = loadState();
-migrateState();
+let state = cloneStarterData();
+let firestoreDb = null;
+let isApplyingRemoteState = false;
 
 const elements = {
   authPanel: document.querySelector("#authPanel"),
@@ -98,7 +110,36 @@ function createId() {
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function loadState() {
+function getLocalCurrentUserId() {
+  return loadLocalState().currentUserId || null;
+}
+
+function getSharedStateSnapshot() {
+  return {
+    users: state.users,
+    restaurants: state.restaurants,
+    assignments: state.assignments,
+  };
+}
+
+function mergeById(primary = [], secondary = []) {
+  const items = new Map();
+  secondary.forEach((item) => items.set(item.id, item));
+  primary.forEach((item) => items.set(item.id, item));
+  return Array.from(items.values());
+}
+
+function mergeSharedState(remoteState, localState, currentUserId) {
+  return {
+    ...cloneStarterData(),
+    users: mergeById(remoteState.users, localState.users),
+    restaurants: mergeById(remoteState.restaurants, localState.restaurants),
+    assignments: mergeById(remoteState.assignments, localState.assignments),
+    currentUserId,
+  };
+}
+
+function loadLocalState() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (!saved) {
     return cloneStarterData();
@@ -111,8 +152,89 @@ function loadState() {
   }
 }
 
+async function loadState() {
+  const localState = loadLocalState();
+  const currentUserId = localState.currentUserId || null;
+
+  if (!firestoreDb) {
+    return localState;
+  }
+
+  try {
+    const snapshot = await firestoreDb.collection(FIREBASE_COLLECTION).doc(FIREBASE_DOCUMENT).get();
+    if (snapshot.exists) {
+      return mergeSharedState(snapshot.data(), localState, currentUserId);
+    }
+
+    return { ...localState, currentUserId };
+  } catch (error) {
+    console.warn("Firebase load failed, using local data.", error);
+    return localState;
+  }
+}
+
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (!firestoreDb || isApplyingRemoteState) {
+    return;
+  }
+
+  firestoreDb
+    .collection(FIREBASE_COLLECTION)
+    .doc(FIREBASE_DOCUMENT)
+    .set(getSharedStateSnapshot())
+    .catch((error) => {
+      console.warn("Firebase save failed, data was saved locally.", error);
+    });
+}
+
+function initFirebase() {
+  if (!window.firebase || !window.firebase.apps) {
+    return;
+  }
+
+  if (!window.firebase.apps.length) {
+    window.firebase.initializeApp(firebaseConfig);
+  }
+
+  firestoreDb = window.firebase.firestore();
+}
+
+function subscribeToRemoteState() {
+  if (!firestoreDb) {
+    return;
+  }
+
+  firestoreDb
+    .collection(FIREBASE_COLLECTION)
+    .doc(FIREBASE_DOCUMENT)
+    .onSnapshot(
+      (snapshot) => {
+        if (!snapshot.exists) {
+          return;
+        }
+
+        const currentUserId = state.currentUserId;
+        isApplyingRemoteState = true;
+        state = { ...cloneStarterData(), ...snapshot.data(), currentUserId };
+        migrateState();
+        isApplyingRemoteState = false;
+        renderApp();
+      },
+      (error) => {
+        console.warn("Firebase realtime sync failed.", error);
+      },
+    );
+}
+
+async function startApp() {
+  initFirebase();
+  state = await loadState();
+  migrateState();
+  subscribeToRemoteState();
+  renderApp();
+  syncTraineeSinceInput();
+  resetRestaurantDriverPrice();
 }
 
 function normalizePrice(value) {
@@ -1329,6 +1451,4 @@ elements.coordinatorView.addEventListener("click", (event) => {
 });
 elements.monthFilter.addEventListener("change", renderCoordinator);
 
-renderApp();
-syncTraineeSinceInput();
-resetRestaurantDriverPrice();
+startApp();
