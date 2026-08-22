@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Назначения водителей</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="auth-panel" id="authPanel">
+        <div class="brand-block">
+          <p class="eyebrow">Назначения водителей по ресторанам</p>
+          <h1>City Drive </h1>
+          <p>
+          </p>
+        </div>
+
+        <form class="auth-card" id="authForm">
+          <div class="tabs" role="tablist" aria-label="Режим входа">
+            <button type="button" class="tab active" data-mode="login">Вход</button>
+            <button type="button" class="tab" data-mode="register">Регистрация</button>
+            <button type="button" class="tab" data-mode="delete">Удаление</button>
+          </div>
+
+          <label id="nameField">
+            Имя
+            <input type="text" id="nameInput" autocomplete="name" required />
+          </label>
+
+          <label id="passwordField">
+            Пароль
+            <input type="password" id="passwordInput" autocomplete="current-password" required />
+          </label>
+
+          <fieldset id="roleField" hidden>
+            <legend>Тип аккаунта</legend>
+            <label class="role-choice">
+              <input type="radio" name="role" value="coordinator" checked />
+              <span>Координатор</span>
+            </label>
+            <label class="role-choice">
+              <input type="radio" name="role" value="manager" />
+              <span>Управляющий</span>
+            </label>
+          </fieldset>
+
+          <p class="form-error" id="authError" aria-live="polite"></p>
+          <button type="submit" class="primary-btn" id="authSubmit">Войти</button>
+        </form>
+
+        <section class="auth-card account-admin hidden" id="accountAdmin">
+          <h2>Аккаунты</h2>
+          <div class="account-list" id="accountList"></div>
+        </section>
+      </section>
+
+      <section class="dashboard hidden" id="dashboard">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="roleLabel"></p>
+            <h2 id="userTitle"></h2>
+          </div>
+          <button type="button" class="secondary-btn" id="logoutBtn">Выйти</button>
+        </header>
+
+        <section class="coordinator-view hidden" id="coordinatorView">
+          <div class="summary-grid">
+            <article>
+              <span>Водителей назначено</span>
+              <strong id="assignedCount">0</strong>
+            </article>
+            <article>
+              <span>Заработок водителей за месяц</span>
+              <strong id="totalAmount">0 тг</strong>
+            </article>
+          </div>
+
+          <nav class="section-nav" id="coordinatorNav">
+            <button type="button" class="secondary-btn" data-page="drivers">Водители</button>
+            <button type="button" class="secondary-btn" data-page="restaurants">Рестораны</button>
+          </nav>
+
+          <div id="coordinatorMain">
+          <div class="manager-report-filters hidden" id="managerReportFilters"></div>
+
+          <div class="workspace-grid">
+            <form class="panel" id="assignmentForm">
+              <h3>Направить водителя</h3>
+              <label>
+                Поиск водителя
+                <input type="search" id="driverSearchInput" placeholder="Имя водителя" />
+              </label>
+              <label>
+                Водитель
+                <div class="driver-checklist" id="driverChecklist"></div>
+              </label>
+              <label>
+                Поиск ресторана
+                <input type="search" id="assignmentRestaurantSearchInput" placeholder="Название ресторана" />
+              </label>
+              <label>
+                Ресторан
+                <select id="restaurantSelect" required></select>
+              </label>
+              <label>
+                Дата
+                <input type="date" id="timeInput" required />
+              </label>
+              <button type="submit" class="primary-btn">Назначить</button>
+              <p class="hint" id="assignmentHint"></p>
+            </form>
+          </div>
+
+          <section class="panel report-panel">
+            <div class="panel-header">
+              <h3>Отчет за месяц</h3>
+              <input type="month" id="monthFilter" />
+            </div>
+            <div class="report-tools">
+              <input type="search" id="reportSearchInput" placeholder="Поиск водителя, ресторана или даты" />
+              <label class="date-filter">
+                От
+                <input type="date" id="reportDateFromInput" />
+              </label>
+              <label class="date-filter">
+                До
+                <input type="date" id="reportDateToInput" />
+              </label>
+              <strong id="reportSearchSummary"></strong>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr id="reportHead">
+                    <th>Дата</th>
+                    <th>Водитель</th>
+                    <th>Ресторан</th>
+                    <th>Дата</th>
+                    <th>Сумма</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="reportBody"></tbody>
+              </table>
+            </div>
+          </section>
+          </div>
+
+          <section class="panel management-page hidden" id="driversPage">
+            <div class="panel-header">
+              <h3>Водители</h3>
+              <strong class="list-count" id="driversCount">0</strong>
+              <button type="button" class="secondary-btn compact-btn" data-page="main">Назад</button>
+            </div>
+            <form class="inline-form driver-form" id="driverForm">
+              <input type="text" id="newDriverNameInput" placeholder="Имя водителя" />
+              <input type="text" id="newDriverCarInput" placeholder="Номер машины" />
+              <label class="check-row trainee-row">
+                <input type="checkbox" id="newDriverTraineeInput" />
+                <span>Стажировка</span>
+              </label>
+              <label class="trainee-start-row">
+                Стажер с
+                <input type="date" id="newDriverTraineeSinceInput" />
+              </label>
+              <button type="submit" class="secondary-btn">Добавить</button>
+            </form>
+            <input type="search" class="panel-search" id="driverManageSearchInput" placeholder="Поиск водителя" />
+            <div class="restaurant-list" id="driverManageList"></div>
+          </section>
+
+          <section class="panel management-page hidden" id="restaurantsPage">
+            <div class="panel-header">
+              <h3>Рестораны</h3>
+              <strong class="list-count" id="restaurantsCount">0</strong>
+              <button type="button" class="secondary-btn compact-btn" data-page="main">Назад</button>
+            </div>
+            <form class="inline-form restaurant-form" id="restaurantForm">
+              <input type="text" id="restaurantNameInput" placeholder="Название" />
+              <input type="number" id="restaurantDriverPriceInput" placeholder="Сумма водителя" min="0" step="100" value="3000" />
+              <button type="submit" class="secondary-btn">Добавить</button>
+            </form>
+            <input type="search" class="panel-search" id="restaurantSearchInput" placeholder="Поиск ресторана" />
+            <div class="restaurant-list" id="restaurantList"></div>
+          </section>
+        </section>
+
+        <section class="driver-view hidden" id="driverView">
+          <section class="panel driver-panel">
+            <h3>Мои направления</h3>
+            <div class="assignment-list" id="driverAssignments"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
