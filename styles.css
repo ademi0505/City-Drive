@@ -264,7 +264,7 @@ fieldset {
   z-index: -1;
   background:
     linear-gradient(90deg, rgba(245, 247, 251, 0.02), rgba(245, 247, 251, 0.88) 68%),
-    url("assets/dashboard-route.jpeg") center / cover no-repeat;
+    url("assets/dashboard-route.jpeg?v=20260825-2") center / cover no-repeat;
   border-radius: 8px;
 }
 
