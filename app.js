@@ -137,6 +137,14 @@ function includesSearch(value, query) {
   return String(value || "").toLowerCase().includes(query.toLowerCase());
 }
 
+function normalizeUserName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isLoginAccount(user) {
+  return user?.role === "coordinator" || user?.role === "manager";
+}
+
 function getUser(id) {
   return state.users.find((user) => user.id === id);
 }
@@ -378,7 +386,8 @@ function handleAuth(event) {
   }
 
   if (authMode === "register") {
-    if (state.users.some((user) => user.name.trim().toLowerCase() === name.toLowerCase())) {
+    const normalizedName = normalizeUserName(name);
+    if (state.users.some((user) => isLoginAccount(user) && normalizeUserName(user.name) === normalizedName)) {
       elements.authError.textContent = "Такое имя уже занято.";
       return;
     }
@@ -393,7 +402,7 @@ function handleAuth(event) {
     return;
   }
 
-  const user = state.users.find((item) => item.name.trim().toLowerCase() === name.toLowerCase() && item.password === password);
+  const user = state.users.find((item) => isLoginAccount(item) && normalizeUserName(item.name) === normalizeUserName(name) && item.password === password);
   if (!user) {
     elements.authError.textContent = "Аккаунт не найден или пароль неверный.";
     return;
@@ -409,16 +418,19 @@ function deleteAccount(id) {
   const user = getUser(id);
   if (!user || !confirm(`Удалить аккаунт "${user.name}"?`)) return;
 
-  state.users = state.users.filter((item) => item.id !== id);
-  if (user.role === "coordinator") {
-    const restaurantIds = new Set(getCoordinatorRestaurants(id).map((restaurant) => restaurant.id));
-    state.restaurants = state.restaurants.filter((restaurant) => restaurant.coordinatorId !== id);
-    state.assignments = state.assignments.filter((assignment) => assignment.coordinatorId !== id && !restaurantIds.has(assignment.restaurantId));
+  const deletedName = normalizeUserName(user.name);
+  const deletedUsers = state.users.filter((item) => isLoginAccount(item) && normalizeUserName(item.name) === deletedName);
+  const deletedIds = new Set(
+    deletedUsers.map((item) => item.id),
+  );
+
+  state.users = state.users.filter((item) => !deletedIds.has(item.id));
+  if (deletedUsers.some((item) => item.role === "coordinator")) {
+    const restaurantIds = new Set(state.restaurants.filter((restaurant) => deletedIds.has(restaurant.coordinatorId)).map((restaurant) => restaurant.id));
+    state.restaurants = state.restaurants.filter((restaurant) => !deletedIds.has(restaurant.coordinatorId));
+    state.assignments = state.assignments.filter((assignment) => !deletedIds.has(assignment.coordinatorId) && !restaurantIds.has(assignment.restaurantId));
   }
-  if (user.role === "driver") {
-    state.assignments = state.assignments.filter((assignment) => assignment.driverId !== id);
-  }
-  if (state.currentUserId === id) state.currentUserId = null;
+  if (deletedIds.has(state.currentUserId)) state.currentUserId = null;
   saveState();
   renderApp();
 }
