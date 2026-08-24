@@ -188,6 +188,7 @@ select {
 }
 
 input[type="search"] {
+  width: min(100%, 38ch);
   color: var(--search-red-dark);
   background: var(--search-red-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23dc2626' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") no-repeat 12px 50%;
   border-color: rgba(220, 38, 38, 0.42);
@@ -478,10 +479,19 @@ fieldset {
 
 .report-tools {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(132px, 0.35fr) minmax(132px, 0.35fr) auto;
+  grid-template-columns: minmax(360px, 44ch) minmax(132px, 170px) minmax(132px, 170px) auto;
   gap: 10px;
   align-items: center;
+  justify-content: start;
   margin-bottom: 12px;
+}
+
+.panel-search {
+  max-width: 38ch;
+}
+
+#reportSearchInput {
+  width: min(100%, 44ch);
 }
 
 .date-filter {
@@ -591,6 +601,12 @@ th:last-child {
 
   .report-tools strong {
     text-align: left;
+  }
+
+  input[type="search"],
+  .panel-search {
+    width: 100%;
+    max-width: none;
   }
 }
 

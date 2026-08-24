@@ -3,6 +3,8 @@ const TRAINEE_DAYS = 60;
 const STORAGE_KEY = "driver-routing-app";
 const FIREBASE_COLLECTION = "appState";
 const FIREBASE_DOCUMENT = "main";
+const DATA_VERSION = 3;
+const SEED_ACCOUNT_IDS = new Set(["u1", "u2", "u3"]);
 
 const firebaseConfig = {
   apiKey: "AIzaSyD_CbV5Tyvp-9Im196VBkDlk3PaI-X7-LY",
@@ -15,18 +17,11 @@ const firebaseConfig = {
 };
 
 const starterData = {
-  users: [
-    { id: "u1", name: "koord", password: "1234", role: "coordinator" },
-    { id: "u2", name: "driver", password: "1234", role: "driver", coordinatorId: "u1", carNumber: "", trainee: false },
-    { id: "u3", name: "manager", password: "1234", role: "manager" },
-  ],
-  restaurants: [
-    { id: "r1", coordinatorId: "u1", name: "Burger House", driverPrice: DRIVER_RATE },
-    { id: "r2", coordinatorId: "u1", name: "Sushi Time", driverPrice: DRIVER_RATE },
-    { id: "r3", coordinatorId: "u1", name: "Pizza City", driverPrice: DRIVER_RATE },
-  ],
+  users: [],
+  restaurants: [],
   assignments: [],
   currentUserId: null,
+  dataVersion: DATA_VERSION,
 };
 
 let state = clone(starterData);
@@ -163,6 +158,14 @@ function getDefaultCoordinatorId() {
   return getActiveCoordinatorId() || getCoordinators()[0]?.id || "";
 }
 
+function getCoordinatorRestaurants(coordinatorId = getActiveCoordinatorId()) {
+  return state.restaurants.filter((restaurant) => restaurant.coordinatorId === coordinatorId);
+}
+
+function getRestaurantsForAssignment(assignment) {
+  return getCoordinatorRestaurants(assignment?.coordinatorId || getActiveCoordinatorId());
+}
+
 function getRoleLabel(role) {
   return {
     coordinator: "Координатор",
@@ -202,6 +205,7 @@ function getSharedStateSnapshot() {
     users: state.users,
     restaurants: state.restaurants,
     assignments: state.assignments,
+    dataVersion: state.dataVersion || DATA_VERSION,
   };
 }
 
@@ -215,9 +219,11 @@ function mergeById(primary = [], secondary = []) {
 function mergeSharedState(remoteState, localState, currentUserId) {
   return {
     ...clone(starterData),
-    users: mergeById(remoteState.users, localState.users),
-    restaurants: mergeById(remoteState.restaurants, localState.restaurants),
-    assignments: mergeById(remoteState.assignments, localState.assignments),
+    ...remoteState,
+    users: Array.isArray(remoteState.users) ? remoteState.users : [],
+    restaurants: Array.isArray(remoteState.restaurants) ? remoteState.restaurants : [],
+    assignments: Array.isArray(remoteState.assignments) ? remoteState.assignments : [],
+    dataVersion: Number(remoteState.dataVersion) || 1,
     currentUserId,
   };
 }
@@ -258,7 +264,8 @@ function subscribeToRemoteState() {
       if (!snapshot.exists) return;
       const currentUserId = state.currentUserId;
       isApplyingRemoteState = true;
-      state = { ...clone(starterData), ...snapshot.data(), currentUserId };
+      const remoteState = snapshot.data();
+      state = { ...clone(starterData), ...remoteState, dataVersion: Number(remoteState.dataVersion) || 1, currentUserId };
       migrateState();
       isApplyingRemoteState = false;
       renderApp();
@@ -271,6 +278,18 @@ function migrateState() {
   state.users = Array.isArray(state.users) ? state.users : [];
   state.restaurants = Array.isArray(state.restaurants) ? state.restaurants : [];
   state.assignments = Array.isArray(state.assignments) ? state.assignments : [];
+  if ((state.dataVersion || 1) < DATA_VERSION) {
+    const seedUserIds = new Set(
+      state.users
+        .filter((user) => SEED_ACCOUNT_IDS.has(user.id) && user.password === "1234" && ["koord", "driver", "manager"].includes(user.name))
+        .map((user) => user.id),
+    );
+    state.users = state.users.filter((user) => !seedUserIds.has(user.id));
+    state.restaurants = [];
+    state.assignments = state.assignments.filter((assignment) => !seedUserIds.has(assignment.driverId) && !seedUserIds.has(assignment.coordinatorId));
+    if (seedUserIds.has(state.currentUserId)) state.currentUserId = null;
+  }
+  state.dataVersion = DATA_VERSION;
   const defaultCoordinatorId = getDefaultCoordinatorId();
 
   state.users.forEach((user) => {
@@ -297,7 +316,8 @@ function migrateState() {
 
   state.assignments.forEach((assignment) => {
     assignment.groupId ||= assignment.id;
-    assignment.coordinatorId ||= getUser(assignment.driverId)?.coordinatorId || defaultCoordinatorId;
+    assignment.coordinatorId ||= defaultCoordinatorId;
+    assignment.driverPrice = normalizePrice(assignment.driverPrice || getRestaurant(assignment.restaurantId)?.driverPrice);
     assignment.arrived = Boolean(assignment.arrived);
     assignment.estimatedFinish ||= "";
   });
@@ -330,7 +350,7 @@ function renderAccountList() {
     const coordinator = user.role === "driver" ? getUser(user.coordinatorId) : null;
     const details =
       user.role === "coordinator"
-        ? ` · общих водителей: ${state.users.filter((item) => item.role === "driver").length} · общих ресторанов: ${state.restaurants.length}`
+        ? ` · общих водителей: ${state.users.filter((item) => item.role === "driver").length} · своих ресторанов: ${getCoordinatorRestaurants(user.id).length}`
         : user.role === "driver"
           ? ` · машина: ${user.carNumber || "не указана"} · добавил: ${coordinator ? coordinator.name : "не найден"}`
           : "";
@@ -390,6 +410,11 @@ function deleteAccount(id) {
   if (!user || !confirm(`Удалить аккаунт "${user.name}"?`)) return;
 
   state.users = state.users.filter((item) => item.id !== id);
+  if (user.role === "coordinator") {
+    const restaurantIds = new Set(getCoordinatorRestaurants(id).map((restaurant) => restaurant.id));
+    state.restaurants = state.restaurants.filter((restaurant) => restaurant.coordinatorId !== id);
+    state.assignments = state.assignments.filter((assignment) => assignment.coordinatorId !== id && !restaurantIds.has(assignment.restaurantId));
+  }
   if (user.role === "driver") {
     state.assignments = state.assignments.filter((assignment) => assignment.driverId !== id);
   }
@@ -415,6 +440,11 @@ function openDatePicker(input) {
     }
   }
   input.focus();
+}
+
+function bindPicker(input) {
+  input?.addEventListener("click", () => openDatePicker(input));
+  input?.addEventListener("focus", () => openDatePicker(input));
 }
 
 function renderApp() {
@@ -511,14 +541,14 @@ function renderDriverOptions() {
 
 function renderRestaurantOptions() {
   const query = elements.assignmentRestaurantSearchInput.value.trim();
-  elements.restaurantSelect.innerHTML = state.restaurants
+  elements.restaurantSelect.innerHTML = getCoordinatorRestaurants()
     .filter((restaurant) => includesSearch(restaurant.name, query))
     .map((restaurant) => `<option value="${restaurant.id}">${escapeHtml(restaurant.name)}</option>`)
     .join("");
 }
 
-function restaurantOptions(selectedId) {
-  return state.restaurants.map((restaurant) => `
+function restaurantOptions(selectedId, assignment) {
+  return getRestaurantsForAssignment(assignment).map((restaurant) => `
     <option value="${restaurant.id}" ${restaurant.id === selectedId ? "selected" : ""}>${escapeHtml(restaurant.name)}</option>
   `).join("");
 }
@@ -543,8 +573,9 @@ function renderDrivers() {
 
 function renderRestaurants() {
   const query = elements.restaurantSearchInput.value.trim();
-  const restaurants = state.restaurants.filter((restaurant) => includesSearch(restaurant.name, query));
-  elements.restaurantsCount.textContent = query ? `В списке: ${restaurants.length} из ${state.restaurants.length}` : `Всего: ${state.restaurants.length}`;
+  const allRestaurants = getCoordinatorRestaurants();
+  const restaurants = allRestaurants.filter((restaurant) => includesSearch(restaurant.name, query));
+  elements.restaurantsCount.textContent = query ? `В списке: ${restaurants.length} из ${allRestaurants.length}` : `Всего: ${allRestaurants.length}`;
 
   elements.restaurantList.innerHTML = restaurants.length ? restaurants.map((restaurant) => {
     const count = filteredAssignments().filter((assignment) => assignment.restaurantId === restaurant.id).length;
@@ -590,11 +621,14 @@ function filteredAssignments() {
 
   return state.assignments.filter((assignment) => {
     const date = assignment.time.slice(0, 10);
+    const coordinatorMatches =
+      currentUser?.role !== "coordinator" ||
+      assignment.coordinatorId === currentUser.id;
     const managerMatches =
       currentUser?.role !== "manager" ||
       managerReportCoordinatorId === "all" ||
       assignment.coordinatorId === managerReportCoordinatorId;
-    return assignment.time.startsWith(month) && (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo) && managerMatches;
+    return assignment.time.startsWith(month) && (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo) && coordinatorMatches && managerMatches;
   });
 }
 
@@ -629,7 +663,7 @@ function renderReport() {
   if (!elements.monthFilter.value) elements.monthFilter.value = currentMonth();
   const currentUser = getUser(state.currentUserId);
   const isManager = currentUser?.role === "manager";
-  const canEdit = currentUser?.role === "coordinator";
+  const canEdit = currentUser?.role === "coordinator" || currentUser?.role === "manager";
   const query = elements.reportSearchInput.value.trim();
   const groups = groupAssignments(filteredAssignments().filter((assignment) => reportMatchesSearch(assignment, query)))
     .sort((a, b) => new Date(a.time) - new Date(b.time));
@@ -657,7 +691,7 @@ function renderReport() {
 }
 
 function getAssignmentDriverPrice(assignment) {
-  return normalizePrice(getRestaurant(assignment.restaurantId)?.driverPrice);
+  return normalizePrice(assignment.driverPrice || getRestaurant(assignment.restaurantId)?.driverPrice);
 }
 
 function renderReportSearchSummary(assignments, query) {
@@ -673,19 +707,22 @@ function renderReportGroup(group, options) {
   const restaurant = getRestaurant(group.restaurantId);
   const coordinator = getUser(group.coordinatorId);
   const total = group.assignments.reduce((sum, assignment) => sum + getAssignmentDriverPrice(assignment), 0);
+  const firstAssignment = group.assignments[0];
+  const driverPrice = getAssignmentDriverPrice(firstAssignment);
 
   if (options.canEdit && group.id === editingAssignmentId) {
     return `
       <tr>
         <td><input type="date" data-edit-field="time" data-id="${group.id}" value="${escapeHtml(group.time.slice(0, 10))}" /></td>
+        ${options.isManager ? `<td>${escapeHtml(coordinator?.name || "Удалённый координатор")}</td>` : ""}
         <td>
           <div class="driver-checklist report-driver-editor">
             ${renderGroupDriverEditor(group)}
           </div>
         </td>
         <td>${renderGroupTraineeList(drivers)}</td>
-        <td><select data-edit-field="restaurantId" data-id="${group.id}">${restaurantOptions(group.restaurantId)}</select></td>
-        <td>${formatMoney(total)}</td>
+        <td><select data-edit-field="restaurantId" data-id="${group.id}">${restaurantOptions(group.restaurantId, firstAssignment)}</select></td>
+        <td><input type="number" data-edit-field="driverPrice" data-id="${group.id}" value="${escapeHtml(driverPrice)}" min="0" step="100" /></td>
         <td class="actions-cell">
           <button type="button" class="secondary-btn compact-btn" data-action="save-assignment" data-id="${group.id}">Сохранить</button>
           <button type="button" class="secondary-btn compact-btn" data-action="cancel-edit">Отмена</button>
@@ -761,6 +798,8 @@ function handleAssignment(event) {
   }
 
   const groupId = createId();
+  const selectedRestaurant = getRestaurant(elements.restaurantSelect.value);
+  const driverPrice = normalizePrice(selectedRestaurant?.driverPrice);
   selectedDriverIds.forEach((driverId) => {
     state.assignments.push({
       id: createId(),
@@ -768,6 +807,7 @@ function handleAssignment(event) {
       driverId,
       restaurantId: elements.restaurantSelect.value,
       time: elements.timeInput.value,
+      driverPrice,
       coordinatorId: state.currentUserId,
       arrived: false,
       estimatedFinish: "",
@@ -856,6 +896,7 @@ function handleReportAction(event) {
 
     const time = elements.reportBody.querySelector(`[data-edit-field="time"][data-id="${id}"]`)?.value || groupAssignments[0].time;
     const restaurantId = elements.reportBody.querySelector(`[data-edit-field="restaurantId"][data-id="${id}"]`)?.value || groupAssignments[0].restaurantId;
+    const driverPrice = normalizePrice(elements.reportBody.querySelector(`[data-edit-field="driverPrice"][data-id="${id}"]`)?.value);
     const selectedDriverIds = Array.from(elements.reportBody.querySelectorAll(`[data-edit-driver-id][data-id="${id}"]:checked`)).map((input) => input.dataset.editDriverId);
     if (!selectedDriverIds.length) return;
 
@@ -864,12 +905,13 @@ function handleReportAction(event) {
     groupAssignments.forEach((assignment) => {
       assignment.time = time;
       assignment.restaurantId = restaurantId;
+      assignment.driverPrice = driverPrice;
       assignment.groupId = id;
     });
     state.assignments = state.assignments.filter((assignment) => (assignment.groupId || assignment.id) !== id || selectedDriverIdSet.has(assignment.driverId));
     selectedDriverIds.forEach((driverId) => {
       if (existingDriverIds.has(driverId)) return;
-      state.assignments.push({ id: createId(), groupId: id, driverId, restaurantId, time, coordinatorId: groupAssignments[0].coordinatorId, arrived: false, estimatedFinish: "" });
+      state.assignments.push({ id: createId(), groupId: id, driverId, restaurantId, time, driverPrice, coordinatorId: groupAssignments[0].coordinatorId, arrived: false, estimatedFinish: "" });
     });
     editingAssignmentId = null;
     saveState();
@@ -980,8 +1022,21 @@ elements.reportDateFromInput.addEventListener("change", renderReport);
 elements.reportDateToInput.addEventListener("change", renderReport);
 elements.monthFilter.addEventListener("change", renderApp);
 elements.newDriverTraineeInput.addEventListener("change", syncTraineeSinceInput);
-elements.timeInput.addEventListener("click", () => openDatePicker(elements.timeInput));
-elements.timeInput.addEventListener("focus", () => openDatePicker(elements.timeInput));
+[
+  elements.timeInput,
+  elements.monthFilter,
+  elements.reportDateFromInput,
+  elements.reportDateToInput,
+  elements.newDriverTraineeSinceInput,
+].forEach(bindPicker);
+elements.reportBody.addEventListener("click", (event) => {
+  const dateInput = event.target.closest('input[type="date"], input[type="month"]');
+  if (dateInput) openDatePicker(dateInput);
+});
+elements.reportBody.addEventListener("focusin", (event) => {
+  const dateInput = event.target.closest('input[type="date"], input[type="month"]');
+  if (dateInput) openDatePicker(dateInput);
+});
 elements.coordinatorView.addEventListener("click", (event) => {
   const reportCoordinatorButton = event.target.closest("[data-report-coordinator]");
   if (reportCoordinatorButton) {
